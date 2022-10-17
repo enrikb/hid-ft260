@@ -35,6 +35,8 @@ MODULE_PARM_DESC(debug, "Toggle FT260 debugging messages");
 #define FT260_RD_DATA_MAX (256)
 #define FT260_WR_DATA_MAX (60)
 
+#define FT260_WAKEUP_NEEDED_AFTER_MS (4800) /* 5s minus 200ms margin */
+
 /*
  * Device interface configuration.
  * The FT260 has 2 interfaces that are controlled by DCNF0 and DCNF1 pins.
@@ -231,6 +233,7 @@ struct ft260_device {
 	u16 read_idx;
 	u16 read_len;
 	u16 clock;
+	unsigned long need_wakeup_at;
 };
 
 static int ft260_hid_feature_report_get(struct hid_device *hdev,
@@ -628,6 +631,13 @@ static int ft260_i2c_xfer(struct i2c_adapter *adapter, struct i2c_msg *msgs,
 		return ret;
 	}
 
+	if (time_is_before_jiffies(dev->need_wakeup_at)) {
+		ft260_dbg("sending status request to wakeup device");
+		ret = ft260_xfer_status(dev);
+	}
+
+	dev->need_wakeup_at = jiffies + msecs_to_jiffies(FT260_WAKEUP_NEEDED_AFTER_MS);
+
 	if (num == 1) {
 		if (msgs->flags & I2C_M_RD)
 			ret = ft260_i2c_read(dev, msgs->addr, msgs->buf,
@@ -670,6 +680,13 @@ static int ft260_smbus_xfer(struct i2c_adapter *adapter, u16 addr, u16 flags,
 		mutex_unlock(&dev->lock);
 		return ret;
 	}
+
+	if (time_is_before_jiffies(dev->need_wakeup_at)) {
+		ft260_dbg("sending status request to wakeup device");
+		ret = ft260_xfer_status(dev);
+	}
+
+	dev->need_wakeup_at = jiffies + msecs_to_jiffies(FT260_WAKEUP_NEEDED_AFTER_MS);
 
 	switch (size) {
 	case I2C_SMBUS_BYTE:
